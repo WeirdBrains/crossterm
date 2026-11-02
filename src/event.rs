@@ -119,6 +119,8 @@
 //! them (`event-*`).
 
 pub(crate) mod filter;
+#[cfg(feature = "fuzzball")]
+pub mod fuzzball;
 pub(crate) mod read;
 pub(crate) mod source;
 #[cfg(feature = "event-stream")]
@@ -1484,6 +1486,9 @@ pub(crate) enum InternalEvent {
     /// Attributes and architectural class of the terminal.
     #[cfg(unix)]
     PrimaryDeviceAttributes,
+    /// Whether the Fuzzball capability reply advertised the keyboard subsystem.
+    #[cfg(all(unix, feature = "fuzzball"))]
+    FuzzballKeyboardSupport(bool),
 }
 
 #[cfg(test)]

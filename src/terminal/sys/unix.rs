@@ -266,6 +266,75 @@ fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhanceme
     }
 }
 
+/// Queries the terminal's support for the
+/// [Fuzzball keyboard protocol](https://github.com/WeirdBrains/mouser/blob/main/docs/protocol/keyboard.md).
+///
+/// Sends the Fuzzball capability query followed by a primary device attributes query, and
+/// returns whether the reply advertised the keyboard subsystem (`sub` contains `k` and
+/// `k=1`). A terminal that only answers the device attributes query does not support it.
+/// Waits at most 2 seconds.
+///
+/// On unix systems, this function will block and possibly time out while
+/// [`crossterm::event::read`](crate::event::read) or [`crossterm::event::poll`](crate::event::poll) are being called.
+#[cfg(feature = "fuzzball")]
+pub fn supports_fuzzball_keyboard() -> io::Result<bool> {
+    if is_raw_mode_enabled() {
+        supports_fuzzball_keyboard_raw()
+    } else {
+        enable_raw_mode()?;
+        let supported = supports_fuzzball_keyboard_raw();
+        disable_raw_mode()?;
+        supported
+    }
+}
+
+#[cfg(feature = "fuzzball")]
+fn supports_fuzzball_keyboard_raw() -> io::Result<bool> {
+    use crate::event::{
+        filter::{FuzzballKeyboardSupportFilter, PrimaryDeviceAttributesFilter},
+        poll_internal, read_internal, InternalEvent,
+    };
+    use std::io::Write;
+    use std::time::Duration;
+
+    // ESC P = F z c q ; id=1 ESC \   Fuzzball capability query.
+    // ESC [ c                         Query primary device attributes.
+    const QUERY: &[u8] = b"\x1BP=Fzcq;id=1\x1B\\\x1B[c";
+
+    let result = File::open("/dev/tty").and_then(|mut file| {
+        file.write_all(QUERY)?;
+        file.flush()
+    });
+    if result.is_err() {
+        let mut stdout = io::stdout();
+        stdout.write_all(QUERY)?;
+        stdout.flush()?;
+    }
+
+    loop {
+        match poll_internal(
+            Some(Duration::from_millis(2000)),
+            &FuzzballKeyboardSupportFilter,
+        ) {
+            Ok(true) => match read_internal(&FuzzballKeyboardSupportFilter) {
+                Ok(InternalEvent::FuzzballKeyboardSupport(supported)) => {
+                    // Flush the PrimaryDeviceAttributes out of the event queue.
+                    read_internal(&PrimaryDeviceAttributesFilter).ok();
+                    return Ok(supported);
+                }
+                _ => return Ok(false),
+            },
+            Ok(false) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "The Fuzzball keyboard support could not be read within a normal duration",
+                ));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
 /// execute tput with the given argument and parse
 /// the output as a u16.
 ///

@@ -1,5 +1,9 @@
 # Unreleased
 
+## Added ⭐
+
+- Opt-in `fuzzball` feature: the Fuzzball keyboard protocol (`EnableFuzzballKeyboard`, `DisableFuzzballKeyboard`, `terminal::supports_fuzzball_keyboard`, and decoding of its key events into `Event::Key`)
+
 # Version 0.29
 
 ## Added ⭐

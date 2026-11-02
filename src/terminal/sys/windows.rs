@@ -469,3 +469,12 @@ mod tests {
         assert_eq!(test_title, &console_title[..]);
     }
 }
+
+/// Queries the terminal's support for the Fuzzball keyboard protocol.
+///
+/// Fuzzball key events are VT input, which the Windows console input reader does not
+/// decode, so this always returns `false` on Windows.
+#[cfg(feature = "fuzzball")]
+pub fn supports_fuzzball_keyboard() -> std::io::Result<bool> {
+    Ok(false)
+}

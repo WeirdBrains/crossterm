@@ -59,6 +59,9 @@ jobs:
     - name: Test event-stream feature
       run: cargo test --lib --features "event-stream,events" -- --nocapture --test-threads 1
       continue-on-error: ${{ matrix.can-fail }}
+    - name: Test fuzzball feature
+      run: cargo test --lib --features fuzzball -- --nocapture --test-threads 1
+      continue-on-error: ${{ matrix.can-fail }}
     - name: Test all features
       run: cargo test --all-features -- --nocapture --test-threads 1
       continue-on-error: ${{ matrix.can-fail }}

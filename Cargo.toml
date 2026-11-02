@@ -50,6 +50,10 @@ derive-more = ["dep:derive_more"]
 ## Enables interacting with a host clipboard via [`clipboard`](clipboard/index.html)
 osc52 = ["dep:base64"]
 
+## Enables the [Fuzzball keyboard protocol](event::fuzzball): commands to turn it on and
+## off, a support query, and decoding its key events in the input parser.
+fuzzball = ["events"]
+
 [dependencies]
 base64 = { version = "0.22", optional = true }
 bitflags = { version = "2.9" }
@@ -116,6 +120,10 @@ required-features = ["events"]
 [[example]]
 name = "key-display"
 required-features = ["events"]
+
+[[example]]
+name = "fuzzball-keyboard"
+required-features = ["events", "fuzzball"]
 
 [[example]]
 name = "copy-to-clipboard"
