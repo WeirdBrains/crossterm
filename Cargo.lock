@@ -200,6 +200,7 @@ dependencies = [
  "futures",
  "futures-core",
  "futures-timer",
+ "fuzzball",
  "mio",
  "parking_lot",
  "rustix",
@@ -385,6 +386,12 @@ dependencies = [
  "pin-project-lite",
  "slab",
 ]
+
+[[package]]
+name = "fuzzball"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f68c356b3bf76a9b54c41cfd805db5715c992a9ba9971c929805ab1063c9140d"
 
 [[package]]
 name = "hermit-abi"

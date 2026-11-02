@@ -200,7 +200,16 @@ impl Parser {
             match parse_event(&self.buffer, more) {
                 Ok(Some(ie)) => {
                     self.internal_events.push_back(ie);
+                    // A held `ESC P` that turned out not to start a Fuzzball message was
+                    // reported as Alt+Shift+P; parse the bytes held after it again.
+                    #[cfg(feature = "fuzzball")]
+                    let held = crate::event::sys::unix::parse::fuzzball_held_bytes(&self.buffer)
+                        .map(<[u8]>::to_vec);
                     self.buffer.clear();
+                    #[cfg(feature = "fuzzball")]
+                    if let Some(held) = held {
+                        self.advance(&held, more);
+                    }
                 }
                 Ok(None) => {
                     // Event can't be parsed, because we don't have enough bytes for

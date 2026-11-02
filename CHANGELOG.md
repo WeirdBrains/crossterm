@@ -31,7 +31,8 @@
 - Implement `From<KeyEvent>` and `From<MouseEvent>` for `Event`, so synthetic events can be
   built with `KeyEvent::new(..).into()` instead of wrapping them in `Event::Key`/`Event::Mouse`.
 - Add the opt-in `fuzzball` feature for the
-  [Fuzzball keyboard protocol](https://github.com/WeirdBrains/mouser/blob/main/docs/protocol/keyboard.md):
+  [Fuzzball keyboard protocol](https://github.com/WeirdBrains/fuzzball/blob/main/docs/keyboard.md),
+  built on the dependency-free [`fuzzball`](https://crates.io/crates/fuzzball) crate:
   `event::fuzzball::{EnableFuzzballKeyboard, DisableFuzzballKeyboard}`,
   `terminal::supports_fuzzball_keyboard`, and decoding of its key events into `Event::Key` on
   Unix. Without the feature nothing changes.

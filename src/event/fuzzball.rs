@@ -1,13 +1,17 @@
 //! Fuzzball keyboard protocol (opt-in `fuzzball` feature).
 //!
-//! [Fuzzball](https://github.com/WeirdBrains/mouser/blob/main/docs/protocol/keyboard.md)
-//! is a small family of terminal extensions first implemented in the Mouser terminal. Its
-//! keyboard subsystem has exactly one mode: while it is on, every key press, repeat and
-//! release is reported as one DCS message
+//! [Fuzzball](https://github.com/WeirdBrains/fuzzball/blob/main/docs/keyboard.md) is a
+//! small family of terminal extensions first implemented in the
+//! [Mouser](https://github.com/WeirdBrains/mouser) terminal. Its keyboard subsystem has
+//! exactly one mode: while it is on, every key press, repeat and release is reported as
+//! one DCS message
 //!
 //! ```text
 //! ESC P = F z k e ; t=<p|r|u>,code=<phys>,key=<logical>[,mods=<n>][,locks=<n>][,text=<hex>][,ime=<phase>] ESC \
 //! ```
+//!
+//! Framing and field parsing come from the [`fuzzball`](https://docs.rs/fuzzball) crate
+//! (re-exported as [`protocol`]); this module maps its events onto crossterm's types.
 //!
 //! With this feature enabled, crossterm's input parser decodes these messages into
 //! ordinary [`Event::Key`](crate::event::Event::Key) events, so applications keep using
@@ -16,9 +20,10 @@
 //! [`Event::Paste`](crate::event::Event::Paste) when the `bracketed-paste` feature is on.
 //! IME pre-edit messages (`start`, `update`, `cancel`) are consumed and not reported.
 //!
-//! The extra fields the protocol carries (physical key, logical key name, AltGr, Hyper,
-//! lock state, inserted text, IME phase) are available through [`FuzzballKeyEvent`] for
-//! applications that read raw input themselves.
+//! The extra fields the protocol carries (physical key, logical key name, AltGr, lock
+//! state, inserted text, IME phase) are available through [`FuzzballKeyEvent`] (the
+//! crate's [`protocol::keyboard::KeyEvent`]) and [`to_input`] for applications that read
+//! raw input themselves.
 //!
 //! # Example
 //!
@@ -40,7 +45,7 @@
 //! ```
 //!
 //! Through tmux or GNU screen the enable / disable commands must be wrapped in the
-//! multiplexer's passthrough by the application; see the protocol README.
+//! multiplexer's passthrough by the application (see [`protocol::passthrough`]).
 
 use std::fmt;
 
@@ -49,8 +54,13 @@ use crate::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MediaKeyCode, ModifierKeyCode,
 };
 
-/// Prefix of every Fuzzball message: `ESC P = F z`.
-pub(crate) const DCS_PREFIX: &[u8] = b"\x1BP=Fz";
+/// The [`fuzzball`](https://docs.rs/fuzzball) protocol crate.
+pub use ::fuzzball as protocol;
+pub use ::fuzzball::keyboard::{ImePhase, Key, KeyKind, Locks, Modifiers};
+
+/// One Fuzzball key event with every field the protocol defines.
+pub type FuzzballKeyEvent = ::fuzzball::keyboard::KeyEvent;
+
 /// Longest Fuzzball message the input parser buffers before giving up.
 pub(crate) const MAX_MESSAGE_LEN: usize = 4096;
 
@@ -65,7 +75,7 @@ pub struct EnableFuzzballKeyboard;
 
 impl Command for EnableFuzzballKeyboard {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        f.write_str("\x1BP=Fzks;on=1,v=0\x1B\\")
+        f.write_str(::fuzzball::keyboard::ENABLE_STR)
     }
 
     #[cfg(windows)]
@@ -88,7 +98,7 @@ pub struct DisableFuzzballKeyboard;
 
 impl Command for DisableFuzzballKeyboard {
     fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        f.write_str("\x1BP=Fzks;on=0\x1B\\")
+        f.write_str(::fuzzball::keyboard::DISABLE_STR)
     }
 
     #[cfg(windows)]
@@ -105,71 +115,9 @@ impl Command for DisableFuzzballKeyboard {
     }
 }
 
-/// Fuzzball modifier bits (`mods=`).
-pub mod mods {
-    /// Shift.
-    pub const SHIFT: u8 = 1;
-    /// Alt.
-    pub const ALT: u8 = 2;
-    /// Control.
-    pub const CONTROL: u8 = 4;
-    /// Super.
-    pub const SUPER: u8 = 8;
-    /// Hyper.
-    pub const HYPER: u8 = 16;
-    /// Meta.
-    pub const META: u8 = 32;
-    /// AltGr.
-    pub const ALT_GR: u8 = 64;
-}
-
-/// Fuzzball lock bits (`locks=`).
-pub mod locks {
-    /// Caps Lock.
-    pub const CAPS_LOCK: u8 = 1;
-    /// Num Lock.
-    pub const NUM_LOCK: u8 = 2;
-    /// Scroll Lock.
-    pub const SCROLL_LOCK: u8 = 4;
-}
-
-/// IME composition phase (`ime=`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ImePhase {
-    /// Composition started.
-    Start,
-    /// Pre-edit text changed (not inserted).
-    Update,
-    /// Composition finished; `text` is inserted.
-    Commit,
-    /// Composition cancelled.
-    Cancel,
-}
-
-/// One Fuzzball key event (`ESC P = F z k e ; … ESC \`) with every field the protocol
-/// defines.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FuzzballKeyEvent {
-    /// Press, repeat or release (`t=`).
-    pub kind: KeyEventKind,
-    /// Physical key as a W3C UI Events `code` name, e.g. `KeyA` (`code=`). Empty for IME
-    /// messages.
-    pub code: String,
-    /// Logical key: a W3C UI Events `key` name, or `U+XXXX` (`key=`). Empty for IME
-    /// messages.
-    pub key: String,
-    /// Held modifiers, see [`mods`] (`mods=`).
-    pub mods: u8,
-    /// Active locks, see [`locks`] (`locks=`).
-    pub locks: u8,
-    /// Text this event inserts, decoded from hex (`text=`).
-    pub text: Option<String>,
-    /// IME composition phase (`ime=`).
-    pub ime: Option<ImePhase>,
-}
-
 /// What a Fuzzball key event means for a crossterm application.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FuzzballInput {
     /// A key event.
     Key(KeyEvent),
@@ -179,182 +127,125 @@ pub enum FuzzballInput {
     None,
 }
 
-impl FuzzballKeyEvent {
-    /// Parse a complete message (`ESC P = F z k e ; … ESC \`, with or without the framing).
-    /// Unknown parameters are ignored, as the spec requires.
-    pub fn parse(message: &[u8]) -> Option<Self> {
-        let s = std::str::from_utf8(message).ok()?;
-        let s = s.strip_prefix("\x1BP=Fz").unwrap_or(s);
-        let s = s.strip_suffix("\x1B\\").unwrap_or(s);
-        let params = s.strip_prefix("ke;").or_else(|| s.strip_prefix("ke"))?;
-        let mut ev = FuzzballKeyEvent {
-            kind: KeyEventKind::Press,
-            code: String::new(),
-            key: String::new(),
-            mods: 0,
-            locks: 0,
-            text: None,
-            ime: None,
-        };
-        let mut have_t = false;
-        for pair in params.split(',').filter(|p| !p.is_empty()) {
-            let (k, v) = pair.split_once('=')?;
-            match k {
-                "t" => {
-                    have_t = true;
-                    ev.kind = match v {
-                        "p" => KeyEventKind::Press,
-                        "r" => KeyEventKind::Repeat,
-                        "u" => KeyEventKind::Release,
-                        _ => return None,
-                    }
-                }
-                "code" => ev.code = v.to_string(),
-                "key" => ev.key = v.to_string(),
-                "mods" => ev.mods = v.parse().ok()?,
-                "locks" => ev.locks = v.parse().ok()?,
-                "text" => ev.text = Some(decode_hex_utf8(v)?),
-                "ime" => {
-                    ev.ime = Some(match v {
-                        "start" => ImePhase::Start,
-                        "update" => ImePhase::Update,
-                        "commit" => ImePhase::Commit,
-                        "cancel" => ImePhase::Cancel,
-                        _ => return None,
-                    })
-                }
-                _ => {}
-            }
+/// crossterm modifiers for a Fuzzball modifier mask (AltGr has no crossterm equivalent
+/// and is dropped; Mouser reports the Windows / Command key as Super).
+pub fn modifiers(mods: Modifiers) -> KeyModifiers {
+    let mut m = KeyModifiers::empty();
+    for (bit, flag) in [
+        (Modifiers::SHIFT, KeyModifiers::SHIFT),
+        (Modifiers::ALT, KeyModifiers::ALT),
+        (Modifiers::CTRL, KeyModifiers::CONTROL),
+        (Modifiers::SUPER, KeyModifiers::SUPER),
+        (Modifiers::HYPER, KeyModifiers::HYPER),
+        (Modifiers::META, KeyModifiers::META),
+    ] {
+        if mods.contains(bit) {
+            m |= flag;
         }
-        if !have_t || (ev.ime.is_none() && ev.key.is_empty()) {
-            return None;
-        }
-        Some(ev)
     }
+    m
+}
 
-    /// crossterm modifiers for `mods` (AltGr has no crossterm equivalent and is dropped).
-    pub fn modifiers(&self) -> KeyModifiers {
-        let mut m = KeyModifiers::empty();
-        for (bit, flag) in [
-            (mods::SHIFT, KeyModifiers::SHIFT),
-            (mods::ALT, KeyModifiers::ALT),
-            (mods::CONTROL, KeyModifiers::CONTROL),
-            (mods::SUPER, KeyModifiers::SUPER),
-            (mods::HYPER, KeyModifiers::HYPER),
-            (mods::META, KeyModifiers::META),
-        ] {
-            if self.mods & bit != 0 {
-                m |= flag;
-            }
-        }
-        m
+/// crossterm key state for an event's locks and keypad keys.
+pub fn state(ev: &FuzzballKeyEvent) -> KeyEventState {
+    let mut s = KeyEventState::empty();
+    if ev.locks.contains(Locks::CAPS_LOCK) {
+        s |= KeyEventState::CAPS_LOCK;
     }
-
-    /// crossterm key state for `locks` and keypad keys.
-    pub fn state(&self) -> KeyEventState {
-        let mut s = KeyEventState::empty();
-        if self.locks & locks::CAPS_LOCK != 0 {
-            s |= KeyEventState::CAPS_LOCK;
-        }
-        if self.locks & locks::NUM_LOCK != 0 {
-            s |= KeyEventState::NUM_LOCK;
-        }
-        if self.code.starts_with("Numpad") {
-            s |= KeyEventState::KEYPAD;
-        }
-        s
+    if ev.locks.contains(Locks::NUM_LOCK) {
+        s |= KeyEventState::NUM_LOCK;
     }
+    if ev.code.as_deref().is_some_and(|c| c.starts_with("Numpad")) {
+        s |= KeyEventState::KEYPAD;
+    }
+    s
+}
 
-    /// Map to what crossterm reports. Letters follow crossterm's usual convention:
-    /// `Shift+a` is `Char('A')` with `SHIFT`, `Ctrl+c` is `Char('c')` with `CONTROL`, and
-    /// `Shift+Tab` is `BackTab`.
-    pub fn to_input(&self) -> FuzzballInput {
-        match self.ime {
-            Some(ImePhase::Commit) => {
-                let Some(text) = self.text.as_deref().filter(|t| !t.is_empty()) else {
-                    return FuzzballInput::None;
-                };
-                let mut chars = text.chars();
-                return match (chars.next(), chars.next()) {
-                    (Some(c), None) => FuzzballInput::Key(KeyEvent::new_with_kind_and_state(
-                        KeyCode::Char(c),
-                        KeyModifiers::empty(),
-                        KeyEventKind::Press,
-                        self.state(),
-                    )),
-                    _ => FuzzballInput::Text(text.to_string()),
-                };
-            }
-            Some(_) => return FuzzballInput::None,
-            None => {}
-        }
-        let mut modifiers = self.modifiers();
-        let code = match self.key.strip_prefix("U+") {
-            Some(hex) => {
-                let Some(c) = u32::from_str_radix(hex, 16).ok().and_then(char::from_u32) else {
-                    return FuzzballInput::None;
-                };
-                // Prefer the inserted character (it carries Shift / layout effects).
-                let typed = self.text.as_deref().and_then(|t| {
-                    let mut it = t.chars();
-                    match (it.next(), it.next()) {
-                        (Some(t), None) if !t.is_control() => Some(t),
-                        _ => None,
-                    }
-                });
-                let c = typed.unwrap_or(if modifiers.contains(KeyModifiers::SHIFT) {
-                    let mut up = c.to_uppercase();
-                    match (up.next(), up.next()) {
-                        (Some(u), None) => u,
-                        _ => c,
-                    }
-                } else {
-                    c
-                });
-                KeyCode::Char(c)
-            }
-            None => match named_key(&self.key, &self.code) {
-                Some(KeyCode::Tab) if modifiers.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
-                Some(k) => k,
-                None => return FuzzballInput::None,
-            },
-        };
-        if let KeyCode::Modifier(m) = code {
-            // Spec: `mods` reflects the state after the event; crossterm (like kitty)
-            // reports a modifier key's own bit as held while it is pressed.
-            let own = match m {
-                ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => KeyModifiers::SHIFT,
-                ModifierKeyCode::LeftAlt | ModifierKeyCode::RightAlt => KeyModifiers::ALT,
-                ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => {
-                    KeyModifiers::CONTROL
-                }
-                ModifierKeyCode::LeftSuper | ModifierKeyCode::RightSuper => KeyModifiers::SUPER,
-                ModifierKeyCode::LeftHyper | ModifierKeyCode::RightHyper => KeyModifiers::HYPER,
-                ModifierKeyCode::LeftMeta | ModifierKeyCode::RightMeta => KeyModifiers::META,
-                _ => KeyModifiers::empty(),
-            };
-            if self.kind != KeyEventKind::Release {
-                modifiers |= own;
-            }
-        }
-        FuzzballInput::Key(KeyEvent::new_with_kind_and_state(
-            code,
-            modifiers,
-            self.kind,
-            self.state(),
-        ))
+fn kind(k: KeyKind) -> KeyEventKind {
+    match k {
+        KeyKind::Repeat => KeyEventKind::Repeat,
+        KeyKind::Release => KeyEventKind::Release,
+        _ => KeyEventKind::Press,
     }
 }
 
-fn decode_hex_utf8(v: &str) -> Option<String> {
-    if v.len() % 2 != 0 {
-        return None;
+/// Map a Fuzzball key event to what crossterm reports. Letters follow crossterm's usual
+/// convention: `Shift+a` is `Char('A')` with `SHIFT`, `Ctrl+c` is `Char('c')` with
+/// `CONTROL`, and `Shift+Tab` is `BackTab`.
+pub fn to_input(ev: &FuzzballKeyEvent) -> FuzzballInput {
+    let st = state(ev);
+    match ev.ime {
+        Some(ImePhase::Commit) => {
+            let Some(text) = ev.text.as_deref().filter(|t| !t.is_empty()) else {
+                return FuzzballInput::None;
+            };
+            let mut chars = text.chars();
+            return match (chars.next(), chars.next()) {
+                (Some(c), None) => FuzzballInput::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char(c),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                    st,
+                )),
+                _ => FuzzballInput::Text(text.to_string()),
+            };
+        }
+        Some(_) => return FuzzballInput::None,
+        None => {}
     }
-    let bytes = (0..v.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(v.get(i..i + 2)?, 16).ok())
-        .collect::<Option<Vec<u8>>>()?;
-    String::from_utf8(bytes).ok()
+    let mut mods = modifiers(ev.mods);
+    let code_name = ev.code.as_deref().unwrap_or("");
+    let code = match &ev.key {
+        Some(Key::Char(c)) => {
+            // Prefer the inserted character (it carries Shift / layout effects). Mouser
+            // sends no text with Ctrl/Alt/Super held, so fall back to uppercasing.
+            let typed = ev.text.as_deref().and_then(|t| {
+                let mut it = t.chars();
+                match (it.next(), it.next()) {
+                    (Some(t), None) if !t.is_control() => Some(t),
+                    _ => None,
+                }
+            });
+            let c = typed.unwrap_or(if mods.contains(KeyModifiers::SHIFT) {
+                let mut up = c.to_uppercase();
+                match (up.next(), up.next()) {
+                    (Some(u), None) => u,
+                    _ => *c,
+                }
+            } else {
+                *c
+            });
+            KeyCode::Char(c)
+        }
+        Some(Key::Named(n)) => match named_key(n, code_name) {
+            Some(KeyCode::Tab) if mods.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
+            Some(k) => k,
+            None => return FuzzballInput::None,
+        },
+        _ => return FuzzballInput::None,
+    };
+    if let KeyCode::Modifier(m) = code {
+        // `mods` reflects the state after the event; crossterm (like kitty) reports a
+        // modifier key's own bit as held while it is pressed.
+        let own = match m {
+            ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => KeyModifiers::SHIFT,
+            ModifierKeyCode::LeftAlt | ModifierKeyCode::RightAlt => KeyModifiers::ALT,
+            ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => KeyModifiers::CONTROL,
+            ModifierKeyCode::LeftSuper | ModifierKeyCode::RightSuper => KeyModifiers::SUPER,
+            ModifierKeyCode::LeftHyper | ModifierKeyCode::RightHyper => KeyModifiers::HYPER,
+            ModifierKeyCode::LeftMeta | ModifierKeyCode::RightMeta => KeyModifiers::META,
+            _ => KeyModifiers::empty(),
+        };
+        if ev.kind != KeyKind::Release {
+            mods |= own;
+        }
+    }
+    FuzzballInput::Key(KeyEvent::new_with_kind_and_state(
+        code,
+        mods,
+        kind(ev.kind),
+        st,
+    ))
 }
 
 fn named_key(key: &str, code: &str) -> Option<KeyCode> {
@@ -407,14 +298,16 @@ fn named_key(key: &str, code: &str) -> Option<KeyCode> {
     })
 }
 
-/// What the input parser does with a buffer that starts with [`DCS_PREFIX`].
+/// What the input parser does with a buffer that starts with `ESC P = F z`.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Parsed {
-    /// Not complete yet.
+    /// Not complete yet (or a prefix of `ESC P = F z`).
     Incomplete,
+    /// Not a Fuzzball message.
+    NotFuzzball,
     /// A keyboard event.
     Input(FuzzballInput),
-    /// A keyboard-mode query reply (`k r`): whether the mode is on.
+    /// A keyboard-mode reply (`k r`): whether the mode is on.
     ModeReply(bool),
     /// A capability reply (`c r`): whether the keyboard subsystem is available.
     Capabilities(bool),
@@ -422,38 +315,22 @@ pub(crate) enum Parsed {
     Ignored,
 }
 
-/// Parse a buffer starting with `ESC P = F z`.
+/// Parse a buffer that may start with `ESC P = F z`.
 pub(crate) fn parse_dcs(buffer: &[u8]) -> Parsed {
-    let Some(end) = buffer
-        .windows(2)
-        .position(|w| w == b"\x1B\\")
-        .filter(|&i| i >= DCS_PREFIX.len())
-    else {
-        return if buffer.len() > MAX_MESSAGE_LEN {
-            Parsed::Ignored
-        } else {
-            Parsed::Incomplete
-        };
-    };
-    let body = &buffer[DCS_PREFIX.len()..end];
-    let params = |b: &[u8]| -> Vec<(String, String)> {
-        std::str::from_utf8(b.get(3..).unwrap_or_default())
-            .unwrap_or_default()
-            .split(',')
-            .filter_map(|p| p.split_once('='))
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
-    };
-    let has = |ps: &[(String, String)], k: &str, v: &str| ps.iter().any(|(a, b)| a == k && b == v);
-    match body.get(..2) {
-        Some(b"ke") => FuzzballKeyEvent::parse(body)
-            .map(|e| Parsed::Input(e.to_input()))
-            .unwrap_or(Parsed::Ignored),
-        Some(b"kr") => Parsed::ModeReply(has(&params(body), "on", "1")),
-        Some(b"cr") => {
-            let ps = params(body);
-            let sub_k = ps.iter().any(|(k, v)| k == "sub" && v.contains('k'));
-            Parsed::Capabilities(sub_k && has(&ps, "k", "1"))
+    use ::fuzzball::{Parse, common::Capabilities, keyboard::ModeReply};
+    match ::fuzzball::parse_with_limit(buffer, MAX_MESSAGE_LEN) {
+        Parse::Incomplete => Parsed::Incomplete,
+        Parse::NotFuzzball => Parsed::NotFuzzball,
+        Parse::Complete { value: m, .. } => {
+            if let Some(ev) = FuzzballKeyEvent::from_message(&m) {
+                Parsed::Input(to_input(&ev))
+            } else if let Some(r) = ModeReply::from_message(&m) {
+                Parsed::ModeReply(r.on)
+            } else if let Some(c) = Capabilities::from_message(&m) {
+                Parsed::Capabilities(c.keyboard())
+            } else {
+                Parsed::Ignored
+            }
         }
         _ => Parsed::Ignored,
     }
@@ -512,6 +389,37 @@ mod tests {
     }
 
     #[test]
+    fn mouser_wire_format() {
+        // Space is U+0020; uppercase hex keys; Super for Win/Cmd; no text with Ctrl.
+        assert_eq!(
+            key("ke;t=p,code=Space,key=U+0020,text=20").code,
+            KeyCode::Char(' ')
+        );
+        assert_eq!(
+            key("ke;t=p,code=Digit1,key=U+0031,text=31").code,
+            KeyCode::Char('1')
+        );
+        let k = key("ke;t=p,code=KeyE,key=U+00E9,text=c3a9");
+        assert_eq!(k.code, KeyCode::Char('é'));
+        let k = key("ke;t=p,code=MetaLeft,key=Super,mods=8");
+        assert_eq!(
+            (k.code, k.modifiers),
+            (
+                KeyCode::Modifier(ModifierKeyCode::LeftSuper),
+                KeyModifiers::SUPER
+            )
+        );
+        let k = key("ke;t=p,code=KeyA,key=U+0061,mods=5");
+        assert_eq!(
+            (k.code, k.modifiers),
+            (
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT | KeyModifiers::CONTROL
+            )
+        );
+    }
+
+    #[test]
     fn modifiers_locks_and_keypad() {
         let k = key("ke;t=p,code=Numpad7,key=U+0037,mods=58,locks=3,text=37");
         assert_eq!(k.code, KeyCode::Char('7'));
@@ -534,7 +442,6 @@ mod tests {
             KeyCode::Modifier(ModifierKeyCode::RightControl)
         );
         assert_eq!(key("ke;t=p,code=Escape,key=Escape").code, KeyCode::Esc);
-        // Unknown params are ignored.
         assert_eq!(
             key("ke;t=p,code=KeyA,key=U+0061,future=9").code,
             KeyCode::Char('a')
@@ -546,8 +453,8 @@ mod tests {
         let e =
             FuzzballKeyEvent::parse(b"\x1BP=Fzke;t=p,code=KeyQ,key=U+0071,mods=64,text=40\x1B\\")
                 .unwrap();
-        assert_eq!(e.code, "KeyQ");
-        assert_eq!(e.mods & mods::ALT_GR, mods::ALT_GR);
+        assert_eq!(e.code.as_deref(), Some("KeyQ"));
+        assert!(e.mods.contains(Modifiers::ALT_GR));
         assert_eq!(e.text.as_deref(), Some("@"));
         assert_eq!(e.ime, None);
     }
@@ -570,12 +477,14 @@ mod tests {
     #[test]
     fn framing_replies_and_garbage() {
         assert_eq!(parse_dcs(b"\x1BP=Fzke;t=p,code=KeyA"), Parsed::Incomplete);
+        assert_eq!(parse_dcs(b"\x1BP="), Parsed::Incomplete);
+        assert_eq!(parse_dcs(b"\x1BPx"), Parsed::NotFuzzball);
         assert_eq!(
             parse_dcs(b"\x1BP=Fzkr;id=1,ok=1,on=1\x1B\\"),
             Parsed::ModeReply(true)
         );
         assert_eq!(
-            parse_dcs(b"\x1BP=Fzcr;id=1,v=0,sub=gk,k=1,k_ime=0\x1B\\"),
+            parse_dcs(b"\x1BP=Fzcr;id=1,v=0,sub=gk,g_fmt=rgba:rgb:png,k=1,k_ime=0\x1B\\"),
             Parsed::Capabilities(true)
         );
         assert_eq!(
