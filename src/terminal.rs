@@ -100,6 +100,8 @@ use crate::{csi, impl_display};
 
 pub(crate) mod sys;
 
+#[cfg(feature = "fuzzball")]
+pub use sys::supports_fuzzball_keyboard;
 #[cfg(feature = "events")]
 pub use sys::supports_keyboard_enhancement;
 

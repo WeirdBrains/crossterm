@@ -78,4 +78,7 @@ pub(crate) enum InternalEvent {
     /// Attributes and architectural class of the terminal.
     #[cfg(unix)]
     PrimaryDeviceAttributes,
+    /// Whether the Fuzzball capability reply advertised the keyboard subsystem.
+    #[cfg(all(unix, feature = "fuzzball"))]
+    FuzzballKeyboardSupport(bool),
 }

@@ -23,6 +23,32 @@ fn could_not_parse_event_error() -> io::Error {
     io::Error::other("Could not parse an event.")
 }
 
+/// Whether `buffer` (starting `ESC P`) is, or may still become, a Fuzzball message
+/// `ESC P = F z …`. A lone `ESC P` with no more input stays Alt+Shift+P.
+#[cfg(feature = "fuzzball")]
+fn is_fuzzball_prefix(buffer: &[u8], input_available: bool) -> bool {
+    use crate::event::fuzzball::DCS_PREFIX;
+    let n = buffer.len().min(DCS_PREFIX.len());
+    buffer[..n] == DCS_PREFIX[..n] && (n == DCS_PREFIX.len() || input_available)
+}
+
+#[cfg(feature = "fuzzball")]
+fn parse_fuzzball(buffer: &[u8]) -> io::Result<Option<InternalEvent>> {
+    use crate::event::fuzzball::{DCS_PREFIX, FuzzballInput, Parsed, parse_dcs};
+    if buffer.len() < DCS_PREFIX.len() {
+        return Ok(None);
+    }
+    match parse_dcs(buffer) {
+        Parsed::Incomplete => Ok(None),
+        Parsed::Input(FuzzballInput::Key(k)) => Ok(Some(InternalEvent::Event(Event::Key(k)))),
+        #[cfg(feature = "bracketed-paste")]
+        Parsed::Input(FuzzballInput::Text(t)) => Ok(Some(InternalEvent::Event(Event::Paste(t)))),
+        Parsed::Capabilities(k) => Ok(Some(InternalEvent::FuzzballKeyboardSupport(k))),
+        // Mode replies, pre-edit, unknown keys and other Fuzzball replies are consumed.
+        _ => Err(could_not_parse_event_error()),
+    }
+}
+
 pub(crate) fn parse_event(
     buffer: &[u8],
     input_available: bool,
@@ -74,6 +100,8 @@ pub(crate) fn parse_event(
                         }
                     }
                     b'[' => parse_csi(buffer),
+                    #[cfg(feature = "fuzzball")]
+                    b'P' if is_fuzzball_prefix(buffer, input_available) => parse_fuzzball(buffer),
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
                     _ => parse_event(&buffer[1..], input_available).map(|event_option| {
                         event_option.map(|event| {
@@ -1606,5 +1634,72 @@ mod tests {
             r.is_err(),
             "finished unrecognised CSI ? sequence must be Err, got {r:?}"
         );
+    }
+
+    #[cfg(feature = "fuzzball")]
+    #[test]
+    fn test_parse_fuzzball_events() {
+        fn feed(bytes: &[u8]) -> Vec<Option<InternalEvent>> {
+            // Byte by byte like the event source: Ok(None) keeps the buffer.
+            let mut out = vec![];
+            let mut buf = vec![];
+            for (i, b) in bytes.iter().enumerate() {
+                buf.push(*b);
+                match parse_event(&buf, i + 1 < bytes.len()) {
+                    Ok(Some(e)) => {
+                        out.push(Some(e));
+                        buf.clear();
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        out.push(None);
+                        buf.clear();
+                    }
+                }
+            }
+            out
+        }
+        let got = feed(b"\x1BP=Fzke;t=p,code=KeyA,key=U+0061,mods=1,text=41\x1B\\x");
+        assert_eq!(
+            got,
+            vec![
+                Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                    KeyCode::Char('A'),
+                    KeyModifiers::SHIFT
+                )))),
+                Some(InternalEvent::Event(Event::Key(KeyCode::Char('x').into()))),
+            ]
+        );
+        // A release keeps its kind.
+        assert_eq!(
+            parse_event(b"\x1BP=Fzke;t=u,code=Enter,key=Enter\x1B\\", false).unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Release
+            ))))
+        );
+        // Pre-edit is consumed, the following key still arrives.
+        let got = feed(b"\x1BP=Fzke;t=p,ime=start\x1B\\a");
+        assert_eq!(got.len(), 2);
+        assert!(got[0].is_none());
+        assert_eq!(
+            got[1],
+            Some(InternalEvent::Event(Event::Key(KeyCode::Char('a').into())))
+        );
+        // Capability reply.
+        assert_eq!(
+            parse_event(b"\x1BP=Fzcr;id=1,v=0,sub=gk,k=1\x1B\\", false).unwrap(),
+            Some(InternalEvent::FuzzballKeyboardSupport(true))
+        );
+        // Lone ESC P is still Alt+Shift+P.
+        assert_eq!(
+            parse_event(b"\x1BP", false).unwrap(),
+            Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                KeyCode::Char('P'),
+                KeyModifiers::ALT | KeyModifiers::SHIFT
+            ))))
+        );
+        assert_eq!(parse_event(b"\x1BP=F", true).unwrap(), None);
     }
 }

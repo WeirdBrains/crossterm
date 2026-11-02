@@ -158,6 +158,8 @@ macro_rules! impl_is_variant {
 }
 
 pub(crate) mod filter;
+#[cfg(feature = "fuzzball")]
+pub mod fuzzball;
 pub(crate) mod internal;
 pub(crate) mod read;
 pub(crate) mod source;

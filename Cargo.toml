@@ -49,6 +49,10 @@ use-dev-tty = ["filedescriptor", "rustix/process"]
 ## Enables interacting with a host clipboard via [`clipboard`](clipboard/index.html)
 osc52 = ["dep:base64"]
 
+## Enables the [Fuzzball keyboard protocol](event::fuzzball): commands to turn it on and
+## off, a support query, and decoding its key events in the input parser.
+fuzzball = ["events"]
+
 [dependencies]
 base64 = { version = "0.23", optional = true }
 bitflags = { version = "2.9" }

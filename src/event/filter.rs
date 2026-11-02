@@ -46,6 +46,21 @@ impl Filter for PrimaryDeviceAttributesFilter {
     }
 }
 
+/// A Fuzzball capability reply, or the DA1 reply that follows the query.
+#[cfg(all(unix, feature = "fuzzball"))]
+#[derive(Debug, Clone)]
+pub(crate) struct FuzzballKeyboardSupportFilter;
+
+#[cfg(all(unix, feature = "fuzzball"))]
+impl Filter for FuzzballKeyboardSupportFilter {
+    fn eval(&self, event: &InternalEvent) -> bool {
+        matches!(
+            *event,
+            InternalEvent::FuzzballKeyboardSupport(_) | InternalEvent::PrimaryDeviceAttributes
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct EventFilter;
 
