@@ -120,5 +120,9 @@ name = "key-display"
 required-features = ["events"]
 
 [[example]]
+name = "fuzzball-keyboard"
+required-features = ["events", "fuzzball"]
+
+[[example]]
 name = "copy-to-clipboard"
 required-features = ["osc52"]

@@ -226,6 +226,10 @@ jobs:
             cargo-args: --features serde
           - name: event stream
             cargo-args: --features event-stream,events
+          - name: fuzzball
+            cargo-args: --features fuzzball
+          - name: fuzzball without defaults
+            cargo-args: --no-default-features --features fuzzball
           - name: no defaults
             cargo-args: --no-default-features
           - name: events
@@ -273,6 +277,8 @@ jobs:
             cargo-args: --no-default-features
           - name: events
             cargo-args: --no-default-features --features events
+          - name: fuzzball
+            cargo-args: --features fuzzball
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

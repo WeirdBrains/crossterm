@@ -30,6 +30,11 @@
   events can be built without struct literals.
 - Implement `From<KeyEvent>` and `From<MouseEvent>` for `Event`, so synthetic events can be
   built with `KeyEvent::new(..).into()` instead of wrapping them in `Event::Key`/`Event::Mouse`.
+- Add the opt-in `fuzzball` feature for the
+  [Fuzzball keyboard protocol](https://github.com/WeirdBrains/mouser/blob/main/docs/protocol/keyboard.md):
+  `event::fuzzball::{EnableFuzzballKeyboard, DisableFuzzballKeyboard}`,
+  `terminal::supports_fuzzball_keyboard`, and decoding of its key events into `Event::Key` on
+  Unix. Without the feature nothing changes.
 
 ## Changed ⚙️
 
