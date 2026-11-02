@@ -27,17 +27,22 @@ fn could_not_parse_event_error() -> io::Error {
 /// `ESC P = F z …`. A lone `ESC P` with no more input stays Alt+Shift+P.
 #[cfg(feature = "fuzzball")]
 fn is_fuzzball_prefix(buffer: &[u8], input_available: bool) -> bool {
-    use crate::event::fuzzball::DCS_PREFIX;
-    let n = buffer.len().min(DCS_PREFIX.len());
-    buffer[..n] == DCS_PREFIX[..n] && (n == DCS_PREFIX.len() || input_available)
+    let prefix = ::fuzzball::PREFIX;
+    let n = buffer.len().min(prefix.len());
+    buffer[..n] == prefix[..n] && (n == prefix.len() || input_available)
+}
+
+/// When `buffer` was held because it began like `ESC P = F z` but then diverged, the
+/// bytes after `ESC P`: the caller reports Alt+Shift+P and parses these again.
+#[cfg(feature = "fuzzball")]
+pub(crate) fn fuzzball_held_bytes(buffer: &[u8]) -> Option<&[u8]> {
+    (buffer.len() > 2 && buffer.starts_with(b"\x1BP") && !is_fuzzball_prefix(buffer, true))
+        .then(|| &buffer[2..])
 }
 
 #[cfg(feature = "fuzzball")]
 fn parse_fuzzball(buffer: &[u8]) -> io::Result<Option<InternalEvent>> {
-    use crate::event::fuzzball::{parse_dcs, FuzzballInput, Parsed, DCS_PREFIX};
-    if buffer.len() < DCS_PREFIX.len() {
-        return Ok(None);
-    }
+    use crate::event::fuzzball::{parse_dcs, FuzzballInput, Parsed};
     match parse_dcs(buffer) {
         Parsed::Incomplete => Ok(None),
         Parsed::Input(FuzzballInput::Key(k)) => Ok(Some(InternalEvent::Event(Event::Key(k)))),
@@ -102,6 +107,13 @@ pub(crate) fn parse_event(
                     b'[' => parse_csi(buffer),
                     #[cfg(feature = "fuzzball")]
                     b'P' if is_fuzzball_prefix(buffer, input_available) => parse_fuzzball(buffer),
+                    #[cfg(feature = "fuzzball")]
+                    b'P' if fuzzball_held_bytes(buffer).is_some() => {
+                        Ok(Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                            KeyCode::Char('P'),
+                            KeyModifiers::ALT | KeyModifiers::SHIFT,
+                        )))))
+                    }
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
                     _ => parse_event(&buffer[1..], input_available).map(|event_option| {
                         event_option.map(|event| {
@@ -1544,7 +1556,11 @@ mod tests {
                 match parse_event(&buf, i + 1 < bytes.len()) {
                     Ok(Some(e)) => {
                         out.push(Some(e));
+                        let held = fuzzball_held_bytes(&buf).map(<[u8]>::to_vec);
                         buf.clear();
+                        if let Some(held) = held {
+                            out.extend(feed(&held));
+                        }
                     }
                     Ok(None) => {}
                     Err(_) => {
@@ -1597,5 +1613,17 @@ mod tests {
             ))))
         );
         assert_eq!(parse_event(b"\x1BP=F", true).unwrap(), None);
+        // Alt+Shift+P followed at once by another key: neither byte is lost.
+        let got = feed(b"\x1BPx");
+        assert_eq!(
+            got,
+            vec![
+                Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                    KeyCode::Char('P'),
+                    KeyModifiers::ALT | KeyModifiers::SHIFT
+                )))),
+                Some(InternalEvent::Event(Event::Key(KeyCode::Char('x').into()))),
+            ]
+        );
     }
 }

@@ -52,13 +52,14 @@ osc52 = ["dep:base64"]
 
 ## Enables the [Fuzzball keyboard protocol](event::fuzzball): commands to turn it on and
 ## off, a support query, and decoding its key events in the input parser.
-fuzzball = ["events"]
+fuzzball = ["events", "dep:fuzzball"]
 
 [dependencies]
 base64 = { version = "0.22", optional = true }
 bitflags = { version = "2.9" }
 derive_more = { version = "2.0.0", features = ["is_variant"], optional = true }
 document-features = "0.2.11"
+fuzzball = { version = "1", optional = true }
 futures-core = { version = "0.3", optional = true, default-features = false }
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"], optional = true }

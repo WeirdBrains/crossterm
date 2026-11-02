@@ -2,7 +2,7 @@
 
 ## Added ⭐
 
-- Opt-in `fuzzball` feature: the Fuzzball keyboard protocol (`EnableFuzzballKeyboard`, `DisableFuzzballKeyboard`, `terminal::supports_fuzzball_keyboard`, and decoding of its key events into `Event::Key`)
+- Opt-in `fuzzball` feature: the Fuzzball keyboard protocol, built on the [`fuzzball`](https://crates.io/crates/fuzzball) crate (`EnableFuzzballKeyboard`, `DisableFuzzballKeyboard`, `terminal::supports_fuzzball_keyboard`, and decoding of its key events into `Event::Key`)
 
 # Version 0.29
 
